@@ -1,6 +1,15 @@
 package com.kmpgaraj.xprinter_label
 
-import androidx.compose.foundation.BorderStroke
+import android.util.TypedValue
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.border
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Dp
+import com.kmpgaraj.xprinter_label.printer.LabelBitmapRenderer
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -47,7 +56,6 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -61,9 +69,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.kmpgaraj.xprinter_label.ui.theme.XPrinterLabelTheme
@@ -145,21 +151,24 @@ fun LabelScreen(
             )
 
             Text("Preview", style = MaterialTheme.typography.titleMedium)
-            LabelPreview(
-                content = content ?: when (type) {
-                    LabelType.EXPIRY -> LabelContent.Expiry(
-                        productName.ifBlank { "Product name" },
-                        expiryDate.ifBlank { "dd/mm/yyyy" },
-                        batch.trim()
-                    )
+            if (labelSize != null) {
+                ActualSizePreview(
+                    content = content ?: when (type) {
+                        LabelType.EXPIRY -> LabelContent.Expiry(
+                            productName.ifBlank { "Product name" },
+                            expiryDate.ifBlank { "dd/mm/yyyy" },
+                            batch.trim()
+                        )
 
-                    LabelType.ADDRESS -> LabelContent.Address(
-                        recipient.ifBlank { "Recipient name" },
-                        address.ifBlank { "Address" },
-                        phone.trim()
-                    )
-                }
-            )
+                        LabelType.ADDRESS -> LabelContent.Address(
+                            recipient.ifBlank { "Recipient name" },
+                            address.ifBlank { "Address" },
+                            phone.trim()
+                        )
+                    },
+                    size = labelSize
+                )
+            }
 
             when (type) {
                 LabelType.EXPIRY -> {
@@ -326,59 +335,44 @@ private fun LabelTypeSelector(selected: LabelType, onSelect: (LabelType) -> Unit
     }
 }
 
-/** On-screen approximation of the printed label. */
+/**
+ * The exact bitmap that will be printed, shown at the label's physical size on
+ * screen (1 mm of label = 1 mm of screen). Labels wider than the screen scroll.
+ */
 @Composable
-private fun LabelPreview(content: LabelContent) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
-    ) {
-        Column(
+private fun ActualSizePreview(content: LabelContent, size: LabelSize) {
+    val metrics = LocalContext.current.resources.displayMetrics
+    val density = LocalDensity.current
+
+    val image = remember(content, size) {
+        LabelBitmapRenderer
+            .render(LabelJob(content, size.widthMm, size.heightMm))
+            .asImageBitmap()
+    }
+    // The platform's own mm unit uses the screen's real pixel density.
+    fun mmToDp(mm: Int): Dp = with(density) {
+        TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_MM, mm.toFloat(), metrics).toDp()
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(
+            "Actual size: ${size.displayCm}",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(24.dp),
-            horizontalAlignment = when (content) {
-                is LabelContent.Expiry -> Alignment.CenterHorizontally
-                is LabelContent.Address -> Alignment.Start
-            },
-            verticalArrangement = Arrangement.spacedBy(4.dp)
+                .horizontalScroll(rememberScrollState())
         ) {
-            when (content) {
-                is LabelContent.Expiry -> {
-                    Text(
-                        content.productName,
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold,
-                        textAlign = TextAlign.Center
-                    )
-                    Text("EXPIRY DATE", style = MaterialTheme.typography.labelMedium)
-                    Text(
-                        content.expiryDate,
-                        style = MaterialTheme.typography.headlineMedium,
-                        fontWeight = FontWeight.Bold
-                    )
-                    if (content.batch.isNotBlank()) {
-                        Text("Batch: ${content.batch}", style = MaterialTheme.typography.labelMedium)
-                    }
-                }
-
-                is LabelContent.Address -> {
-                    Text(
-                        content.name,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Text(content.address, style = MaterialTheme.typography.bodyMedium)
-                    if (content.phone.isNotBlank()) {
-                        Text(
-                            "Tel: ${content.phone}",
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                }
-            }
+            Image(
+                bitmap = image,
+                contentDescription = "Label preview",
+                contentScale = ContentScale.FillBounds,
+                modifier = Modifier
+                    .size(mmToDp(size.widthMm), mmToDp(size.heightMm))
+                    .border(1.dp, MaterialTheme.colorScheme.outline)
+            )
         }
     }
 }
