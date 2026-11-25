@@ -24,6 +24,16 @@ object LabelBitmapRenderer {
     const val DOTS_PER_MM = 8
 
     private const val MARGIN_DOTS = 8
+    private const val BLOCK_GAP_DOTS = 6
+    private const val MIN_SCALE = 0.4f
+
+    /** One run of text on a label. [size] is a fraction of the label height. */
+    private data class Block(
+        val text: String,
+        val size: Float,
+        val bold: Boolean = false,
+        val maxLines: Int = 1
+    )
 
     fun render(job: LabelJob): Bitmap {
         val width = job.widthMm * DOTS_PER_MM
@@ -32,45 +42,76 @@ object LabelBitmapRenderer {
         val canvas = Canvas(bitmap)
         canvas.drawColor(Color.WHITE)
 
-        val textWidth = width - 2 * MARGIN_DOTS
-        val title = layout(job.title, textWidth, height * 0.22f, bold = true, maxLines = 3)
-        val subtitle = job.subtitle.takeIf { it.isNotBlank() }
-            ?.let { layout(it, textWidth, height * 0.14f, bold = false, maxLines = 3) }
-
-        val gap = if (subtitle != null) MARGIN_DOTS else 0
-        val contentHeight = title.height + gap + (subtitle?.height ?: 0)
-        var top = ((height - contentHeight) / 2f).coerceAtLeast(0f)
-
-        canvas.save()
-        canvas.translate(MARGIN_DOTS.toFloat(), top)
-        title.draw(canvas)
-        canvas.restore()
-        top += title.height + gap
-
-        if (subtitle != null) {
-            canvas.save()
-            canvas.translate(MARGIN_DOTS.toFloat(), top)
-            subtitle.draw(canvas)
-            canvas.restore()
+        val (blocks, alignment) = when (val content = job.content) {
+            is LabelContent.Expiry -> expiryBlocks(content) to Layout.Alignment.ALIGN_CENTER
+            is LabelContent.Address -> addressBlocks(content) to Layout.Alignment.ALIGN_NORMAL
         }
+        draw(canvas, blocks, alignment, width, height)
         return bitmap
     }
 
-    private fun layout(
-        text: String,
+    private fun expiryBlocks(content: LabelContent.Expiry) = listOfNotNull(
+        Block(content.productName, 0.20f, bold = true, maxLines = 2),
+        Block("EXPIRY DATE", 0.10f),
+        Block(content.expiryDate, 0.28f, bold = true),
+        content.batch.takeIf { it.isNotBlank() }?.let { Block("Batch: $it", 0.10f) }
+    )
+
+    private fun addressBlocks(content: LabelContent.Address) = listOfNotNull(
+        Block(content.name, 0.18f, bold = true, maxLines = 2),
+        Block(content.address, 0.13f, maxLines = 6),
+        content.phone.takeIf { it.isNotBlank() }?.let { Block("Tel: $it", 0.13f, bold = true) }
+    )
+
+    /**
+     * Lays the blocks out top to bottom, centred vertically. If they do not fit,
+     * all text is scaled down together until they do.
+     */
+    private fun draw(
+        canvas: Canvas,
+        blocks: List<Block>,
+        alignment: Layout.Alignment,
         width: Int,
-        textSize: Float,
-        bold: Boolean,
-        maxLines: Int
+        height: Int
+    ) {
+        val textWidth = width - 2 * MARGIN_DOTS
+        val available = height - 2 * MARGIN_DOTS
+
+        var scale = 1f
+        var layouts = blocks.map { layout(it, textWidth, height, scale, alignment) }
+        while (totalHeight(layouts) > available && scale > MIN_SCALE) {
+            scale -= 0.05f
+            layouts = blocks.map { layout(it, textWidth, height, scale, alignment) }
+        }
+
+        var top = ((height - totalHeight(layouts)) / 2f).coerceAtLeast(MARGIN_DOTS.toFloat())
+        for (layout in layouts) {
+            canvas.save()
+            canvas.translate(MARGIN_DOTS.toFloat(), top)
+            layout.draw(canvas)
+            canvas.restore()
+            top += layout.height + BLOCK_GAP_DOTS
+        }
+    }
+
+    private fun totalHeight(layouts: List<StaticLayout>): Int =
+        layouts.sumOf { it.height } + BLOCK_GAP_DOTS * (layouts.size - 1).coerceAtLeast(0)
+
+    private fun layout(
+        block: Block,
+        width: Int,
+        labelHeight: Int,
+        scale: Float,
+        alignment: Layout.Alignment
     ): StaticLayout {
         val paint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.BLACK
-            this.textSize = textSize.roundToInt().toFloat()
-            typeface = if (bold) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
+            textSize = (labelHeight * block.size * scale).roundToInt().coerceAtLeast(8).toFloat()
+            typeface = if (block.bold) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
         }
-        return StaticLayout.Builder.obtain(text, 0, text.length, paint, width)
-            .setAlignment(Layout.Alignment.ALIGN_CENTER)
-            .setMaxLines(maxLines)
+        return StaticLayout.Builder.obtain(block.text, 0, block.text.length, paint, width)
+            .setAlignment(alignment)
+            .setMaxLines(block.maxLines)
             .setEllipsize(TextUtils.TruncateAt.END)
             .build()
     }

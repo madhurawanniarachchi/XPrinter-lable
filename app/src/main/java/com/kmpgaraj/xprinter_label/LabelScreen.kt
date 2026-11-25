@@ -22,7 +22,20 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExposedDropdownMenuAnchorType
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.foundation.clickable
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDialog
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.rememberDatePickerState
+import com.kmpgaraj.xprinter_label.printer.LabelContent
 import com.kmpgaraj.xprinter_label.printer.LabelJob
+import com.kmpgaraj.xprinter_label.printer.LabelType
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import java.util.TimeZone
 import com.kmpgaraj.xprinter_label.printer.LabelSize
 import com.kmpgaraj.xprinter_label.printer.PrinterUiState
 import com.kmpgaraj.xprinter_label.printer.UsbPrinterInfo
@@ -73,8 +86,14 @@ fun LabelScreen(
         }
     }
 
-    var title by rememberSaveable { mutableStateOf("") }
-    var subtitle by rememberSaveable { mutableStateOf("") }
+    var typeIndex by rememberSaveable { mutableStateOf(0) }
+    val type = LabelType.entries[typeIndex]
+    var productName by rememberSaveable { mutableStateOf("") }
+    var expiryDate by rememberSaveable { mutableStateOf("") }
+    var batch by rememberSaveable { mutableStateOf("") }
+    var recipient by rememberSaveable { mutableStateOf("") }
+    var address by rememberSaveable { mutableStateOf("") }
+    var phone by rememberSaveable { mutableStateOf("") }
     // Index into LabelSize.standard, or CUSTOM_SIZE for the typed-in size below.
     var sizeIndex by rememberSaveable {
         mutableStateOf(LabelSize.standard.indexOf(LabelSize.default))
@@ -92,7 +111,19 @@ fun LabelScreen(
         LabelSize.standard[sizeIndex]
     }
     val copyCount = copies.toIntOrNull()
-    val canPrint = printerState.canPrint && title.isNotBlank() &&
+    // Null until the required fields of the chosen label type are filled in.
+    val content: LabelContent? = when (type) {
+        LabelType.EXPIRY ->
+            if (productName.isNotBlank() && expiryDate.isNotBlank()) {
+                LabelContent.Expiry(productName.trim(), expiryDate, batch.trim())
+            } else null
+
+        LabelType.ADDRESS ->
+            if (recipient.isNotBlank() && address.isNotBlank()) {
+                LabelContent.Address(recipient.trim(), address.trim(), phone.trim())
+            } else null
+    }
+    val canPrint = printerState.canPrint && content != null &&
         labelSize != null && copyCount != null && copyCount > 0
 
     Scaffold(
@@ -108,49 +139,77 @@ fun LabelScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            LabelTypeSelector(
+                selected = type,
+                onSelect = { typeIndex = it.ordinal }
+            )
+
             Text("Preview", style = MaterialTheme.typography.titleMedium)
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(24.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(
-                            text = title.ifBlank { "Label title" },
-                            style = MaterialTheme.typography.headlineSmall,
-                            fontWeight = FontWeight.Bold,
-                            textAlign = TextAlign.Center
-                        )
-                        if (subtitle.isNotBlank()) {
-                            Text(
-                                text = subtitle,
-                                style = MaterialTheme.typography.bodyMedium,
-                                textAlign = TextAlign.Center
-                            )
-                        }
-                    }
+            LabelPreview(
+                content = content ?: when (type) {
+                    LabelType.EXPIRY -> LabelContent.Expiry(
+                        productName.ifBlank { "Product name" },
+                        expiryDate.ifBlank { "dd/mm/yyyy" },
+                        batch.trim()
+                    )
+
+                    LabelType.ADDRESS -> LabelContent.Address(
+                        recipient.ifBlank { "Recipient name" },
+                        address.ifBlank { "Address" },
+                        phone.trim()
+                    )
+                }
+            )
+
+            when (type) {
+                LabelType.EXPIRY -> {
+                    OutlinedTextField(
+                        value = productName,
+                        onValueChange = { productName = it },
+                        label = { Text("Product name") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    DateField(
+                        label = "Expiry date",
+                        value = expiryDate,
+                        onDateSelected = { expiryDate = it }
+                    )
+                    OutlinedTextField(
+                        value = batch,
+                        onValueChange = { batch = it },
+                        label = { Text("Batch (optional)") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+
+                LabelType.ADDRESS -> {
+                    OutlinedTextField(
+                        value = recipient,
+                        onValueChange = { recipient = it },
+                        label = { Text("Name") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = address,
+                        onValueChange = { address = it },
+                        label = { Text("Address") },
+                        minLines = 3,
+                        maxLines = 6,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = phone,
+                        onValueChange = { phone = it },
+                        label = { Text("Phone (optional)") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                        modifier = Modifier.fillMaxWidth()
+                    )
                 }
             }
-
-            OutlinedTextField(
-                value = title,
-                onValueChange = { title = it },
-                label = { Text("Title") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth()
-            )
-            OutlinedTextField(
-                value = subtitle,
-                onValueChange = { subtitle = it },
-                label = { Text("Subtitle (optional)") },
-                modifier = Modifier.fillMaxWidth()
-            )
 
             SizeDropdown(
                 selectedIndex = sizeIndex,
@@ -183,8 +242,7 @@ fun LabelScreen(
                 onClick = {
                     onPrint(
                         LabelJob(
-                            title = title.trim(),
-                            subtitle = subtitle.trim(),
+                            content = content!!,
                             widthMm = labelSize!!.widthMm,
                             heightMm = labelSize.heightMm,
                             copies = copyCount!!
@@ -251,6 +309,128 @@ private fun PrinterPicker(
 }
 
 private const val CUSTOM_SIZE = -1
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun LabelTypeSelector(selected: LabelType, onSelect: (LabelType) -> Unit) {
+    SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+        LabelType.entries.forEachIndexed { index, type ->
+            SegmentedButton(
+                selected = type == selected,
+                onClick = { onSelect(type) },
+                shape = SegmentedButtonDefaults.itemShape(index, LabelType.entries.size)
+            ) {
+                Text(type.displayName)
+            }
+        }
+    }
+}
+
+/** On-screen approximation of the printed label. */
+@Composable
+private fun LabelPreview(content: LabelContent) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(24.dp),
+            horizontalAlignment = when (content) {
+                is LabelContent.Expiry -> Alignment.CenterHorizontally
+                is LabelContent.Address -> Alignment.Start
+            },
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            when (content) {
+                is LabelContent.Expiry -> {
+                    Text(
+                        content.productName,
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        textAlign = TextAlign.Center
+                    )
+                    Text("EXPIRY DATE", style = MaterialTheme.typography.labelMedium)
+                    Text(
+                        content.expiryDate,
+                        style = MaterialTheme.typography.headlineMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    if (content.batch.isNotBlank()) {
+                        Text("Batch: ${content.batch}", style = MaterialTheme.typography.labelMedium)
+                    }
+                }
+
+                is LabelContent.Address -> {
+                    Text(
+                        content.name,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(content.address, style = MaterialTheme.typography.bodyMedium)
+                    if (content.phone.isNotBlank()) {
+                        Text(
+                            "Tel: ${content.phone}",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** Read-only field that opens a date picker; reports the date as dd/MM/yyyy. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun DateField(label: String, value: String, onDateSelected: (String) -> Unit) {
+    var showPicker by remember { mutableStateOf(false) }
+
+    Box {
+        OutlinedTextField(
+            value = value,
+            onValueChange = {},
+            readOnly = true,
+            label = { Text(label) },
+            placeholder = { Text("Tap to choose") },
+            modifier = Modifier.fillMaxWidth()
+        )
+        // A read-only text field swallows taps, so catch them on a layer above it.
+        Box(
+            Modifier
+                .matchParentSize()
+                .clickable { showPicker = true }
+        )
+    }
+
+    if (showPicker) {
+        val pickerState = rememberDatePickerState()
+        DatePickerDialog(
+            onDismissRequest = { showPicker = false },
+            confirmButton = {
+                TextButton(
+                    enabled = pickerState.selectedDateMillis != null,
+                    onClick = {
+                        pickerState.selectedDateMillis?.let { onDateSelected(formatDate(it)) }
+                        showPicker = false
+                    }
+                ) { Text("OK") }
+            },
+            dismissButton = { TextButton(onClick = { showPicker = false }) { Text("Cancel") } }
+        ) {
+            DatePicker(state = pickerState)
+        }
+    }
+}
+
+/** The date picker reports midnight UTC, so format in UTC to avoid an off-by-one day. */
+private fun formatDate(utcMillis: Long): String =
+    SimpleDateFormat("dd/MM/yyyy", Locale.getDefault())
+        .apply { timeZone = TimeZone.getTimeZone("UTC") }
+        .format(Date(utcMillis))
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

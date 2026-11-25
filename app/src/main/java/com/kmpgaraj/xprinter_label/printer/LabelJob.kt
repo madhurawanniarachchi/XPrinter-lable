@@ -1,9 +1,32 @@
 package com.kmpgaraj.xprinter_label.printer
 
+/** The kinds of label the app can print. */
+enum class LabelType(val displayName: String) {
+    EXPIRY("Expiry date"),
+    ADDRESS("Address")
+}
+
+/** What is written on a label. One subtype per [LabelType]. */
+sealed interface LabelContent {
+
+    /** Product label showing when the item expires. */
+    data class Expiry(
+        val productName: String,
+        val expiryDate: String,
+        val batch: String = ""
+    ) : LabelContent
+
+    /** Delivery / shipping address label. */
+    data class Address(
+        val name: String,
+        val address: String,
+        val phone: String = ""
+    ) : LabelContent
+}
+
 /** Everything needed to print one label design. */
 data class LabelJob(
-    val title: String,
-    val subtitle: String = "",
+    val content: LabelContent,
     val widthMm: Int,
     val heightMm: Int,
     val copies: Int = 1,
