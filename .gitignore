@@ -13,3 +13,16 @@
 .externalNativeBuild
 .cxx
 local.properties
+**/build/
+.kotlin/
+*.apk
+*.aab
+*.jks
+*.keystore
+/.idea/*
+!.idea/codeStyles/
+!.idea/gradle.xml
+!.idea/misc.xml
+.claude/worktrees/
+.claude/settings.local.json
+*.zip
