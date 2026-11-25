@@ -18,7 +18,12 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.semantics.Role
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExposedDropdownMenuAnchorType
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
 import com.kmpgaraj.xprinter_label.printer.LabelJob
+import com.kmpgaraj.xprinter_label.printer.LabelSize
 import com.kmpgaraj.xprinter_label.printer.PrinterUiState
 import com.kmpgaraj.xprinter_label.printer.UsbPrinterInfo
 import androidx.compose.foundation.layout.fillMaxSize
@@ -70,17 +75,25 @@ fun LabelScreen(
 
     var title by rememberSaveable { mutableStateOf("") }
     var subtitle by rememberSaveable { mutableStateOf("") }
-    var width by rememberSaveable { mutableStateOf("40") }
-    var height by rememberSaveable { mutableStateOf("30") }
+    // Index into LabelSize.standard, or CUSTOM_SIZE for the typed-in size below.
+    var sizeIndex by rememberSaveable {
+        mutableStateOf(LabelSize.standard.indexOf(LabelSize.default))
+    }
+    var customWidthCm by rememberSaveable { mutableStateOf("4") }
+    var customHeightCm by rememberSaveable { mutableStateOf("3") }
     var copies by rememberSaveable { mutableStateOf("1") }
 
-    val widthMm = width.toIntOrNull()
-    val heightMm = height.toIntOrNull()
+    val isCustom = sizeIndex == CUSTOM_SIZE
+    val labelSize: LabelSize? = if (isCustom) {
+        val w = LabelSize.cmToMm(customWidthCm)
+        val h = LabelSize.cmToMm(customHeightCm)
+        if (w != null && h != null) LabelSize(w, h) else null
+    } else {
+        LabelSize.standard[sizeIndex]
+    }
     val copyCount = copies.toIntOrNull()
     val canPrint = printerState.canPrint && title.isNotBlank() &&
-        widthMm != null && widthMm > 0 &&
-        heightMm != null && heightMm > 0 &&
-        copyCount != null && copyCount > 0
+        labelSize != null && copyCount != null && copyCount > 0
 
     Scaffold(
         modifier = modifier,
@@ -139,10 +152,24 @@ fun LabelScreen(
                 modifier = Modifier.fillMaxWidth()
             )
 
+            SizeDropdown(
+                selectedIndex = sizeIndex,
+                onSelect = { sizeIndex = it }
+            )
+
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                NumberField("Width (mm)", width, { width = it }, Modifier.weight(1f))
-                NumberField("Height (mm)", height, { height = it }, Modifier.weight(1f))
+                if (isCustom) {
+                    DecimalField("Width (cm)", customWidthCm, { customWidthCm = it }, Modifier.weight(1f))
+                    DecimalField("Height (cm)", customHeightCm, { customHeightCm = it }, Modifier.weight(1f))
+                }
                 NumberField("Copies", copies, { copies = it }, Modifier.weight(1f))
+            }
+            if (isCustom && labelSize == null) {
+                Text(
+                    "Enter a size between ${LabelSize.MIN_MM / 10} and ${LabelSize.MAX_MM / 10} cm.",
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodySmall
+                )
             }
 
             PrinterPicker(
@@ -158,8 +185,8 @@ fun LabelScreen(
                         LabelJob(
                             title = title.trim(),
                             subtitle = subtitle.trim(),
-                            widthMm = widthMm!!,
-                            heightMm = heightMm!!,
+                            widthMm = labelSize!!.widthMm,
+                            heightMm = labelSize.heightMm,
                             copies = copyCount!!
                         )
                     )
@@ -221,6 +248,71 @@ private fun PrinterPicker(
             }
         }
     }
+}
+
+private const val CUSTOM_SIZE = -1
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SizeDropdown(selectedIndex: Int, onSelect: (Int) -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    val selectedText = if (selectedIndex == CUSTOM_SIZE) {
+        "Custom size"
+    } else {
+        LabelSize.standard[selectedIndex].displayCm
+    }
+
+    ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
+        OutlinedTextField(
+            value = selectedText,
+            onValueChange = {},
+            readOnly = true,
+            label = { Text("Label size (width x height)") },
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) },
+            modifier = Modifier
+                .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable)
+                .fillMaxWidth()
+        )
+        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            LabelSize.standard.forEachIndexed { index, size ->
+                DropdownMenuItem(
+                    text = { Text(size.displayCm) },
+                    onClick = {
+                        onSelect(index)
+                        expanded = false
+                    }
+                )
+            }
+            DropdownMenuItem(
+                text = { Text("Custom size") },
+                onClick = {
+                    onSelect(CUSTOM_SIZE)
+                    expanded = false
+                }
+            )
+        }
+    }
+}
+
+@Composable
+private fun DecimalField(
+    label: String,
+    value: String,
+    onValueChange: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = { input ->
+            // Digits plus at most one decimal separator, e.g. "4.5".
+            val filtered = input.filter { it.isDigit() || it == '.' || it == ',' }
+            if (filtered.count { it == '.' || it == ',' } <= 1) onValueChange(filtered.take(5))
+        },
+        label = { Text(label) },
+        singleLine = true,
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+        modifier = modifier
+    )
 }
 
 @Composable
