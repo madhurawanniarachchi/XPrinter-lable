@@ -1,6 +1,7 @@
 package com.kmpgaraj.xprinter_label.printer
 
 import android.app.Application
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -41,16 +42,30 @@ class PrinterViewModel(application: Application) : AndroidViewModel(application)
 
     fun select(id: String) = _state.update { it.copy(selectedId = id) }
 
-    fun print(job: LabelJob) {
-        val printerId = _state.value.selectedId ?: return
-        if (_state.value.isPrinting) return
+    fun print(job: LabelJob) =
+        launchJob("print", "Label sent to printer") { printerId -> service.print(printerId, job) }
+
+    /** Prints the diagnostic rows A, B and C, to find out why labels come out blank. */
+    fun printTest(job: LabelJob) =
+        launchJob("test print", "Test rows A, B and C sent to printer") { printerId ->
+            service.printTest(printerId, job)
+        }
+
+    private fun launchJob(what: String, successMessage: String, job: suspend (printerId: String) -> Unit) {
+        val printerId = _state.value.selectedId
+        if (printerId == null || _state.value.isPrinting) {
+            Log.w(TAG, "$what: ignored (selectedId=$printerId, isPrinting=${_state.value.isPrinting})")
+            return
+        }
 
         _state.update { it.copy(isPrinting = true) }
         viewModelScope.launch {
             val message = try {
-                service.print(printerId, job)
-                "Label sent to printer"
+                job(printerId)
+                Log.i(TAG, "$what: finished without error")
+                successMessage
             } catch (e: PrinterException) {
+                Log.w(TAG, "$what: finished with error: ${e.message}")
                 e.message ?: "Print failed"
             }
             _state.update { it.copy(isPrinting = false, message = message) }
@@ -58,4 +73,8 @@ class PrinterViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun messageShown() = _state.update { it.copy(message = null) }
+
+    private companion object {
+        const val TAG = "XPrinterLabel"
+    }
 }

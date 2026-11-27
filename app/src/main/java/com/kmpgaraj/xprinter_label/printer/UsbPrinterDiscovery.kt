@@ -9,6 +9,7 @@ import android.hardware.usb.UsbConstants
 import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbManager
 import android.os.Build
+import android.util.Log
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
@@ -20,10 +21,24 @@ class UsbPrinterDiscovery(context: Context) {
     private val usbManager = appContext.getSystemService(Context.USB_SERVICE) as UsbManager
 
     /** Attached devices that expose a printer interface (USB class 7). */
-    fun listPrinters(): List<UsbPrinterInfo> =
-        usbManager.deviceList.values
+    fun listPrinters(): List<UsbPrinterInfo> {
+        val devices = usbManager.deviceList.values
+        // Log every attached USB device, so a printer that is missing from the list can be told apart
+        // from one that is not detected at all.
+        Log.d(
+            TAG,
+            "listPrinters: ${devices.size} USB device(s): " + devices.joinToString { device ->
+                "${device.deviceName} vid=${device.vendorId} pid=${device.productId} " +
+                    "class=${device.deviceClass} interfaces=" +
+                    (0 until device.interfaceCount).map { device.getInterface(it).interfaceClass } +
+                    " permission=${usbManager.hasPermission(device)}"
+            }
+        )
+        return devices
             .filter(::isPrinter)
             .map { UsbPrinterInfo(id = idOf(it), name = displayName(it)) }
+            .also { Log.d(TAG, "listPrinters: printers=$it") }
+    }
 
     fun find(id: String): UsbDevice? =
         usbManager.deviceList.values.firstOrNull { isPrinter(it) && idOf(it) == id }
@@ -31,6 +46,7 @@ class UsbPrinterDiscovery(context: Context) {
     /** Returns true when permission is already held or the user grants it. */
     suspend fun ensurePermission(device: UsbDevice): Boolean {
         if (usbManager.hasPermission(device)) return true
+        Log.d(TAG, "ensurePermission: asking the user for access to ${device.deviceName}")
 
         return suspendCancellableCoroutine { continuation ->
             val action = "${appContext.packageName}.USB_PERMISSION"
@@ -56,6 +72,10 @@ class UsbPrinterDiscovery(context: Context) {
             )
             usbManager.requestPermission(device, pendingIntent)
         }
+    }
+
+    private companion object {
+        const val TAG = "XPrinterLabel"
     }
 
     private fun isPrinter(device: UsbDevice): Boolean =

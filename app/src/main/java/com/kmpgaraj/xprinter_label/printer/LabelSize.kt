@@ -6,8 +6,8 @@ import kotlin.math.roundToInt
 /** A label stock size. Stored in millimetres, shown to people in centimetres. */
 data class LabelSize(val widthMm: Int, val heightMm: Int) {
 
-    /** e.g. "5 x 4 cm" or "10 x 15 cm" or "4.5 x 3 cm". */
-    val displayCm: String get() = "${cm(widthMm)} x ${cm(heightMm)} cm"
+    /** e.g. "5 × 4 cm" or "10 × 15 cm" or "4.5 × 3 cm". */
+    val displayCm: String get() = "${cm(widthMm)} × ${cm(heightMm)} cm"
 
     private fun cm(mm: Int): String =
         if (mm % 10 == 0) (mm / 10).toString() else String.format(Locale.US, "%.1f", mm / 10.0)
@@ -44,11 +44,14 @@ data class LabelSize(val widthMm: Int, val heightMm: Int) {
 
         val default: LabelSize = LabelSize(40, 30)
 
-        /** Converts a centimetre value typed by the user to whole millimetres, or null if invalid. */
-        fun cmToMm(text: String): Int? =
+        /**
+         * Converts a centimetre value typed by the user to whole millimetres, or null
+         * if it is not a number or falls outside [range] (a label size by default).
+         */
+        fun cmToMm(text: String, range: IntRange = MIN_MM..MAX_MM): Int? =
             text.replace(',', '.').toDoubleOrNull()
                 ?.let { (it * 10).roundToInt() }
-                ?.takeIf { it in MIN_MM..MAX_MM }
+                ?.takeIf { it in range }
 
         const val MIN_MM = 10
         const val MAX_MM = 200
