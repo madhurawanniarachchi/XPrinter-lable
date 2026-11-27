@@ -21,8 +21,6 @@ local.properties
 *.keystore
 /.idea/*
 !.idea/codeStyles/
-!.idea/gradle.xml
-!.idea/misc.xml
 .claude/worktrees/
 .claude/settings.local.json
 *.zip
