@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -29,6 +30,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.RadioButtonDefaults
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -427,6 +430,45 @@ fun PrimaryButton(
             Box(Modifier.width(10.dp))
         }
         Text(text, color = contentColor, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+    }
+}
+
+/** A labelled on/off switch; the whole row is the tap target. */
+@Composable
+fun ToggleRow(
+    label: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier,
+    description: String? = null
+) {
+    val c = MaterialTheme.palette
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .toggleable(value = checked, role = Role.Switch, onValueChange = onCheckedChange)
+            .padding(vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(label, color = c.label, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+            if (description != null) {
+                Text(description, color = c.mute, fontSize = 13.sp)
+            }
+        }
+        Switch(
+            checked = checked,
+            onCheckedChange = null,
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = c.onAccent,
+                checkedTrackColor = c.accent,
+                uncheckedThumbColor = c.mute,
+                uncheckedTrackColor = c.field,
+                uncheckedBorderColor = c.border
+            )
+        )
     }
 }
 

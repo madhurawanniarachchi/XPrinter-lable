@@ -61,6 +61,7 @@ import com.kmpgaraj.xprinter_label.printer.Order
 import com.kmpgaraj.xprinter_label.printer.Party
 import com.kmpgaraj.xprinter_label.printer.PrinterUiState
 import com.kmpgaraj.xprinter_label.printer.UsbPrinterInfo
+import com.kmpgaraj.xprinter_label.printer.formatLabelDate
 import com.kmpgaraj.xprinter_label.ui.AppCard
 import com.kmpgaraj.xprinter_label.ui.AppHeader
 import com.kmpgaraj.xprinter_label.ui.CardTitle
@@ -73,6 +74,7 @@ import com.kmpgaraj.xprinter_label.ui.PrimaryButton
 import com.kmpgaraj.xprinter_label.ui.PrinterRow
 import com.kmpgaraj.xprinter_label.ui.SegmentedTabs
 import com.kmpgaraj.xprinter_label.ui.SelectField
+import com.kmpgaraj.xprinter_label.ui.ToggleRow
 import com.kmpgaraj.xprinter_label.ui.theme.XPrinterLabelTheme
 import com.kmpgaraj.xprinter_label.ui.theme.palette
 import java.text.SimpleDateFormat
@@ -103,7 +105,11 @@ fun LabelScreen(
     /** The sender saved last time; the Sender form starts with it. */
     initialSender: Party = Party(),
     /** Called with the new sender whenever it is edited or cleared, so it can be saved. */
-    onSenderChanged: (Party) -> Unit = {}
+    onSenderChanged: (Party) -> Unit = {},
+    /** The Expiry record saved last time; the Expiry form starts with it. */
+    initialExpiry: LabelContent.Expiry = LabelContent.Expiry(),
+    /** Called with the new record on every edit, so the last one is always saved. */
+    onExpiryChanged: (LabelContent.Expiry) -> Unit = {}
 ) {
     val snackbarHostState = remember { SnackbarHostState() }
     LaunchedEffect(printerState.message) {
@@ -116,10 +122,12 @@ fun LabelScreen(
 
     var typeIndex by rememberSaveable { mutableStateOf(0) }
     val type = LabelType.entries[typeIndex]
-    var batchNo by rememberSaveable { mutableStateOf("") }
-    var mfd by rememberSaveable { mutableStateOf("") }
-    var exp by rememberSaveable { mutableStateOf("") }
-    var mrp by rememberSaveable { mutableStateOf("") }
+    var expiry by rememberSaveable(stateSaver = ExpirySaver) { mutableStateOf(initialExpiry) }
+    // Every edit is saved, so the last record is always there for the next label.
+    val updateExpiry: (LabelContent.Expiry) -> Unit = {
+        expiry = it
+        onExpiryChanged(it)
+    }
     var receiver by rememberSaveable(stateSaver = PartySaver) { mutableStateOf(Party()) }
     var sender by rememberSaveable(stateSaver = PartySaver) { mutableStateOf(initialSender) }
     var order by rememberSaveable(stateSaver = OrderSaver) { mutableStateOf(Order()) }
@@ -159,7 +167,7 @@ fun LabelScreen(
     val content: LabelContent? = when (type) {
         // Every field is optional, but at least one is needed to have anything to print.
         LabelType.EXPIRY ->
-            LabelContent.Expiry(batchNo.trim(), mfd, exp, mrp.trim()).takeUnless { it.isEmpty }
+            expiry.takeUnless { it.isEmpty }
 
         // The receiver needs a name and an address; the sender is optional.
         LabelType.ADDRESS ->
@@ -172,7 +180,13 @@ fun LabelScreen(
 
     // What the preview shows while the form is still incomplete.
     val previewContent: LabelContent = content ?: when (type) {
-        LabelType.EXPIRY -> LabelContent.Expiry("B-2041", "dd/mm/yyyy", "dd/mm/yyyy", "0.00")
+        LabelType.EXPIRY -> LabelContent.Expiry(
+            mrp = "0.00",
+            mfd = "dd/mm/yyyy",
+            exp = "dd/mm/yyyy",
+            batchNo = "B-2041",
+            monthYearOnly = expiry.monthYearOnly
+        )
 
         // A blank form shows a sample of both blocks; otherwise the preview is what will print.
         LabelType.ADDRESS ->
@@ -252,47 +266,66 @@ fun LabelScreen(
 
                     LabelType.EXPIRY -> AppCard {
                         CardTitle("Label details")
-                        val batchField: @Composable (Modifier) -> Unit = { fieldModifier ->
-                            LabeledTextField(
-                                label = "Batch no",
-                                value = batchNo,
-                                onValueChange = { batchNo = it },
-                                modifier = fieldModifier,
-                                placeholder = "e.g. B-2041"
-                            )
-                        }
-                        val mfdField: @Composable (Modifier) -> Unit = { fieldModifier ->
-                            DatePickerField("MFD", mfd, { mfd = it }, fieldModifier)
-                        }
-                        val expField: @Composable (Modifier) -> Unit = { fieldModifier ->
-                            DatePickerField("Exp", exp, { exp = it }, fieldModifier)
-                        }
+                        // The fields follow the order they are printed in: MRP, MFD, EXP, batch no.
                         val mrpField: @Composable (Modifier) -> Unit = { fieldModifier ->
                             LabeledTextField(
                                 label = "MRP",
-                                value = mrp,
-                                onValueChange = { mrp = it },
+                                value = expiry.mrp,
+                                onValueChange = { updateExpiry(expiry.copy(mrp = it)) },
                                 modifier = fieldModifier,
                                 placeholder = "e.g. 250.00"
+                            )
+                        }
+                        val mfdField: @Composable (Modifier) -> Unit = { fieldModifier ->
+                            DatePickerField(
+                                label = "MFD",
+                                value = expiry.mfd,
+                                monthYearOnly = expiry.monthYearOnly,
+                                onDateSelected = { updateExpiry(expiry.copy(mfd = it)) },
+                                modifier = fieldModifier
+                            )
+                        }
+                        val expField: @Composable (Modifier) -> Unit = { fieldModifier ->
+                            DatePickerField(
+                                label = "EXP",
+                                value = expiry.exp,
+                                monthYearOnly = expiry.monthYearOnly,
+                                onDateSelected = { updateExpiry(expiry.copy(exp = it)) },
+                                modifier = fieldModifier
+                            )
+                        }
+                        val batchField: @Composable (Modifier) -> Unit = { fieldModifier ->
+                            LabeledTextField(
+                                label = "Batch no",
+                                value = expiry.batchNo,
+                                onValueChange = { updateExpiry(expiry.copy(batchNo = it)) },
+                                modifier = fieldModifier,
+                                placeholder = "e.g. B-2041"
                             )
                         }
                         // Two to a row only when there is room; stacked on a phone.
                         if (wide) {
                             Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                                batchField(Modifier.weight(1f))
+                                mrpField(Modifier.weight(1f))
                                 mfdField(Modifier.weight(1f))
                             }
                             Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                                 expField(Modifier.weight(1f))
-                                mrpField(Modifier.weight(1f))
+                                batchField(Modifier.weight(1f))
                             }
                         } else {
-                            batchField(Modifier)
+                            mrpField(Modifier)
                             mfdField(Modifier)
                             expField(Modifier)
-                            mrpField(Modifier)
+                            batchField(Modifier)
                         }
-                        NoteBox("Leave a field empty and it will not be printed.")
+                        ToggleRow(
+                            label = "Hide the day",
+                            description = "Print MFD and EXP as month/year only, for example 03/2026.",
+                            checked = expiry.monthYearOnly,
+                            onCheckedChange = { updateExpiry(expiry.copy(monthYearOnly = it)) }
+                        )
+                        NoteBox("Leave a field empty and it will not be printed. The last record is saved on this device.")
                     }
                 }
             }
@@ -438,6 +471,20 @@ fun LabelScreen(
         }
     }
 }
+
+/** Keeps an Expiry record across rotation and process death. */
+private val ExpirySaver = listSaver<LabelContent.Expiry, Any>(
+    save = { listOf(it.mrp, it.mfd, it.exp, it.batchNo, it.monthYearOnly) },
+    restore = {
+        LabelContent.Expiry(
+            mrp = it[0] as String,
+            mfd = it[1] as String,
+            exp = it[2] as String,
+            batchNo = it[3] as String,
+            monthYearOnly = it[4] as Boolean
+        )
+    }
+)
 
 /** Keeps a [Party] across rotation and process death. */
 private val PartySaver = listSaver<Party, String>(
@@ -733,13 +780,15 @@ private fun DatePickerField(
     label: String,
     value: String,
     onDateSelected: (String) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    /** Shows the date as MM/yyyy; the value itself keeps the day. */
+    monthYearOnly: Boolean = false
 ) {
     var showPicker by remember { mutableStateOf(false) }
 
     DateSelectField(
         label = label,
-        value = value,
+        value = formatLabelDate(value, monthYearOnly),
         placeholder = "Tap to choose",
         onClick = { showPicker = true },
         onClear = { onDateSelected("") },

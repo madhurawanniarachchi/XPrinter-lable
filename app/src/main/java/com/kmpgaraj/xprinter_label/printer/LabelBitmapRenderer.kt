@@ -54,13 +54,16 @@ object LabelBitmapRenderer {
      * One run of text on a label. [size] is a fraction of the reference length
      * (the label height; the shorter side for address labels).
      * With [fitWidth] a single line that is too wide is shrunk to fit, instead of cut off.
+     * Lines that share a [fitGroup] shrink by the same amount (the most any of them needs),
+     * so they always stay the same size as each other.
      */
     private data class Block(
         val text: String,
         val size: Float,
         val bold: Boolean = false,
         val maxLines: Int = 1,
-        val fitWidth: Boolean = false
+        val fitWidth: Boolean = false,
+        val fitGroup: String? = null
     )
 
     /** A block of lines on an address label, and how much of its column it gets relative to the other blocks. */
@@ -109,13 +112,23 @@ object LabelBitmapRenderer {
         return bitmap
     }
 
-    /** One line per filled-in field, in label order; empty fields get no line. */
-    private fun expiryBlocks(content: LabelContent.Expiry) = listOfNotNull(
-        content.batchNo.nonBlankOrNull()?.let { Block("Batch No: $it", 0.15f, fitWidth = true) },
-        content.mfd.nonBlankOrNull()?.let { Block("MFD: $it", 0.17f, fitWidth = true) },
-        content.exp.nonBlankOrNull()?.let { Block("EXP: $it", 0.19f, bold = true, fitWidth = true) },
-        content.mrp.nonBlankOrNull()?.let { Block("MRP: $it", 0.22f, bold = true, fitWidth = true) }
-    )
+    /**
+     * One line per filled-in field, in label order: MRP, MFD, EXP, then the batch
+     * number. The price and the two dates are the same size, and stay the same when
+     * they shrink to fit the width; the batch number is a little smaller. Empty
+     * fields get no line.
+     */
+    private fun expiryBlocks(content: LabelContent.Expiry): List<Block> {
+        fun mainLine(caption: String, value: String) = value.nonBlankOrNull()?.let {
+            Block("$caption: $it", 0.2f, bold = true, fitWidth = true, fitGroup = "main")
+        }
+        return listOfNotNull(
+            mainLine("MRP", content.mrp),
+            mainLine("MFD", formatLabelDate(content.mfd, content.monthYearOnly)),
+            mainLine("EXP", formatLabelDate(content.exp, content.monthYearOnly)),
+            content.batchNo.nonBlankOrNull()?.let { Block("Batch No: $it", 0.14f, fitWidth = true) }
+        )
+    }
 
     private fun String.nonBlankOrNull(): String? = trim().takeIf { it.isNotEmpty() }
 
@@ -265,10 +278,10 @@ object LabelBitmapRenderer {
         val available = area.height()
 
         var scale = 1f
-        var layouts = blocks.map { layout(it, textWidth, reference, scale, alignment) }
+        var layouts = layoutBlocks(blocks, textWidth, reference, scale, alignment)
         while (totalHeight(layouts) > available && scale > MIN_SCALE) {
             scale -= 0.05f
-            layouts = blocks.map { layout(it, textWidth, reference, scale, alignment) }
+            layouts = layoutBlocks(blocks, textWidth, reference, scale, alignment)
         }
 
         var top = if (centerVertically) {
@@ -291,28 +304,43 @@ object LabelBitmapRenderer {
     private fun totalHeight(layouts: List<StaticLayout>): Int =
         layouts.sumOf { it.height } + BLOCK_GAP_DOTS * (layouts.size - 1).coerceAtLeast(0)
 
-    private fun layout(
-        block: Block,
+    /**
+     * Turns [blocks] into text layouts at the given [scale]. A [Block.fitWidth] line
+     * that is too wide is shrunk to fit; lines of one [Block.fitGroup] all shrink by the
+     * most that any of them needs, so they stay the same size.
+     */
+    private fun layoutBlocks(
+        blocks: List<Block>,
         width: Int,
         reference: Int,
         scale: Float,
         alignment: Layout.Alignment
-    ): StaticLayout {
-        val paint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.BLACK
-            textSize = (reference * block.size * scale).roundToInt().coerceAtLeast(8).toFloat()
-            typeface = if (block.bold) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
-        }
-        if (block.fitWidth) {
-            val needed = paint.measureText(block.text)
-            if (needed > width) {
-                paint.textSize = (paint.textSize * width / needed).coerceAtLeast(MIN_TEXT_DOTS)
+    ): List<StaticLayout> {
+        val paints = blocks.map { block ->
+            TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = Color.BLACK
+                textSize = (reference * block.size * scale).roundToInt().coerceAtLeast(8).toFloat()
+                typeface = if (block.bold) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
             }
         }
-        return StaticLayout.Builder.obtain(block.text, 0, block.text.length, paint, width)
-            .setAlignment(alignment)
-            .setMaxLines(block.maxLines)
-            .setEllipsize(TextUtils.TruncateAt.END)
-            .build()
+        // How much of its size each line can keep: 1 when it fits, less when it is too wide.
+        val keep = blocks.mapIndexed { index, block ->
+            if (block.fitWidth) min(1f, width / paints[index].measureText(block.text)) else 1f
+        }
+        val keepByGroup = blocks.indices
+            .filter { blocks[it].fitGroup != null }
+            .groupBy { blocks[it].fitGroup }
+            .mapValues { (_, indices) -> indices.minOf { keep[it] } }
+
+        return blocks.mapIndexed { index, block ->
+            val paint = paints[index]
+            val factor = block.fitGroup?.let { keepByGroup.getValue(it) } ?: keep[index]
+            paint.textSize = (paint.textSize * factor).coerceAtLeast(MIN_TEXT_DOTS)
+            StaticLayout.Builder.obtain(block.text, 0, block.text.length, paint, width)
+                .setAlignment(alignment)
+                .setMaxLines(block.maxLines)
+                .setEllipsize(TextUtils.TruncateAt.END)
+                .build()
+        }
     }
 }

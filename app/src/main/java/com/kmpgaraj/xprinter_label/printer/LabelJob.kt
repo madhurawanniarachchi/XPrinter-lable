@@ -37,20 +37,35 @@ enum class LabelType(val displayName: String) {
     }
 }
 
+/**
+ * A date picked as dd/MM/yyyy, as it is printed: unchanged, or as MM/yyyy when
+ * [monthYearOnly]. Text that is not in that form (for example a placeholder) is
+ * left as it is.
+ */
+fun formatLabelDate(date: String, monthYearOnly: Boolean): String {
+    val text = date.trim()
+    if (!monthYearOnly) return text
+    val parts = text.split('/')
+    return if (parts.size == 3) "${parts[1]}/${parts[2]}" else text
+}
+
 /** What is written on a label. One subtype per [LabelType]. */
 sealed interface LabelContent {
 
     /**
-     * Product label with batch number, manufacture date, expiry date and price.
+     * Product label with price, manufacture date, expiry date and batch number.
      * Every field is optional; an empty one is left off the printed label.
+     * The dates are held as picked (dd/MM/yyyy); with [monthYearOnly] they are
+     * printed as MM/yyyy, leaving the day off.
      */
     data class Expiry(
-        val batchNo: String = "",
+        val mrp: String = "",
         val mfd: String = "",
         val exp: String = "",
-        val mrp: String = ""
+        val batchNo: String = "",
+        val monthYearOnly: Boolean = false
     ) : LabelContent {
-        val isEmpty: Boolean get() = listOf(batchNo, mfd, exp, mrp).all { it.isBlank() }
+        val isEmpty: Boolean get() = listOf(mrp, mfd, exp, batchNo).all { it.isBlank() }
     }
 
     /**

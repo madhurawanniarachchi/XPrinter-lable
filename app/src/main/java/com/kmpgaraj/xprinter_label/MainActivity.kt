@@ -15,6 +15,7 @@ class MainActivity : ComponentActivity() {
 
     private val printerViewModel: PrinterViewModel by viewModels()
     private val senderStore by lazy { SenderStore(this) }
+    private val expiryStore by lazy { ExpiryStore(this) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -30,6 +31,8 @@ class MainActivity : ComponentActivity() {
                     onTestPrint = printerViewModel::printTest,
                     initialSender = remember { senderStore.load() },
                     onSenderChanged = senderStore::save,
+                    initialExpiry = remember { expiryStore.load() },
+                    onExpiryChanged = expiryStore::save,
                     onMessageShown = printerViewModel::messageShown
                 )
             }
